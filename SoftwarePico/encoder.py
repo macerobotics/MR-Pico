@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 #
-# Date : 19/09/2022
-# Version : 0.1
+# Date : 03/02/2023
+# Version : 0.2
 # Auteur : Mace Robotics
 # 
 # 
@@ -23,7 +23,10 @@ class Encoder:
       self.pir2 = Pin(pin2, Pin.IN, pull=Pin.PULL_UP)  
       
   def read(self):
-    return(self.count)   
+    return(self.count)
+
+  def reset(self):
+    self.count = 0
 
   def handle_interrupt1(self, pin):
     global flag, count1
