@@ -1,7 +1,7 @@
 # Author : Mace Robotics (www.macerobotics.com)
 # Robot MR-Pico
-# Version : 0.25
-# Date : 06/02/23
+# Version : 0.42
+# Date : 25/04/23
 # MIT Licence
 
 
@@ -12,12 +12,18 @@ import machine
 import time
 import math 
 from servo import Servo
+from picozero import Speaker
+from VL53L0X import VL53L0X
+
+
+speaker_1 = Speaker(19)
 
 
 # CONSTANTES
 PERIMETER_ROBOT_MM = 273 # Robot perimeter (mm)
 ENCODEURS_RESOLUTION = 1024 # tick pour 1 tour de roue.
 PERIMETER_WHEEL = 100 # wheels perimeter (mm)
+
 #GAIN_P = 0.7
 GAIN_P = 1
 GAIN_PO = 1 #pid orientation
@@ -49,7 +55,17 @@ TypeControleAsv = 0 # 1 = Distance, 2 = Orientation, 0 = nothing
 
 
 
+xshut1 = Pin(9, Pin.OUT)
+xshut2 = Pin(8, Pin.OUT) 
+xshut3 = Pin(4, Pin.OUT)
+xshut4 = Pin(3, Pin.OUT)
+xshut5 = Pin(2, Pin.OUT)
 
+xshut1.value(0)
+xshut2.value(1)
+xshut3.value(0)
+xshut4.value(0)
+xshut5.value(0)
 
 
 
@@ -65,11 +81,26 @@ codeurLeft = encoder.Encoder(6,7)
 i2c = machine.I2C(0, scl=machine.Pin(13), sda=machine.Pin(12), freq=400000)
 
 # prox sensors
-xshut1 = Pin(9, Pin.OUT)
-xshut2 = Pin(8, Pin.OUT) 
-xshut3 = Pin(4, Pin.OUT)
-xshut4 = Pin(3, Pin.OUT)
-xshut5 = Pin(2, Pin.OUT)
+'''
+tof = VL53L0X(i2c)
+
+# the measuting_timing_budget is a value in ms, the longer the budget, the more accurate the reading. 
+budget = tof.measurement_timing_budget_us
+print("Budget was:", budget)
+tof.set_measurement_timing_budget(20000)
+
+# tof.set_Vcsel_pulse_period(tof.vcsel_period_type[0], 18)
+tof.set_Vcsel_pulse_period(tof.vcsel_period_type[0], 12)
+
+# tof.set_Vcsel_pulse_period(tof.vcsel_period_type[1], 14)
+tof.set_Vcsel_pulse_period(tof.vcsel_period_type[1], 8)
+'''
+
+
+
+
+
+
 
 
 
@@ -150,10 +181,31 @@ def proxRead(sensor):
     
   try:
     proxSensor1 = vl6180x.Sensor(i2c, 0x29)
-    return (proxSensor1.range())
+    mesure = proxSensor1.range()
+    if ((mesure <= 0)or(mesure == 255)):
+      mesure = 255
+        
+    return (mesure)
   except:
     print("Error sensor!")
     return (-1)    
+
+
+def distanceSensorRead(sensor):
+
+  xshut1.value(0)
+  xshut2.value(1)
+  xshut3.value(0)
+  xshut4.value(0)
+  xshut5.value(0)
+
+    
+  try:
+    print(tof.ping()-50, "mm")
+  except:
+    print("Error sensor!")
+    return (-1)
+
 
 # read the right encoder
 def encoderRight():
@@ -192,16 +244,13 @@ def motorLeft(direction, speed):
   pwm2.duty_u16(int((speed/100)*65_535))
   
 def forward(speed):
-  dir1.value(1)
-  dir2.value(1)
-  pwm1.duty_u16(int((speed/100)*65_535))
-  pwm2.duty_u16(int((speed/100)*65_535))
+  print("forward")
+  motorRight(1,speed+10)
+  motorLeft(1,speed)
       
 def back(speed):
-  dir1.value(0)
-  dir2.value(0)
-  pwm1.duty_u16(int((speed/100)*65_535))
-  pwm2.duty_u16(int((speed/100)*65_535))
+  motorRight(0,speed)
+  motorLeft(0,speed-2)
 
 def turnRight(speed):
   dir1.value(0)
@@ -240,9 +289,9 @@ def orientation():
 # forward with control
 def forwardmm(distance, speed):
   global controleEnable, command_distance, max_speed_control, command_orientation, b_endControle, error_distance
-  global TypeControleAsv
+  global TypeControleAsv, error_asv
 
-  if (distance > 50):
+  if (abs(distance) > 50):
       encoderReset()
       TypeControleAsv = 1
       controleEnable = True
@@ -255,25 +304,10 @@ def forwardmm(distance, speed):
       while (b_endControle != True):
         time.sleep(1)
 
-def backmm(distance, speed):
-  global controleEnable, command_distance, max_speed_control, command_orientation, b_endControle, error_distance
-  global TypeControleAsv
-
-  encoderReset()
-  TypeControleAsv = 1
-  controleEnable = True
-  b_endControle = False
-  error_asv = 9999999
-  command_distance = (-distance*1024)/100 #conversion en tick
-  command_orientation = 0
-  max_speed_control = speed
-  
-  while (b_endControle != True):
-    time.sleep(1)
   
 def turnAngle(angle, speed):
   global controleEnable, command_distance, max_speed_control, command_orientation, b_endControle, error_distance
-  global TypeControleAsv
+  global TypeControleAsv, error_asv 
   
   encoderReset()
   TypeControleAsv = 2
@@ -281,13 +315,15 @@ def turnAngle(angle, speed):
   b_endControle = False
   error_asv = 99999
   command_distance = 0 
-  command_orientation = (angle*1200)/90
+  command_orientation = (-angle*1200)/90
   max_speed_control = speed
 
   while (b_endControle != True):
     time.sleep(1)
-
-
+  controleEnable = False
+  print("End turnAngle")
+  
+  
 def servo_Map(x, in_min, in_max, out_min, out_max):
     return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min
  
@@ -315,17 +351,19 @@ timer=Timer()
 
 timer2=Timer()
 
-timer3=Timer() 
+timer3=Timer()
+counter_controlRobot = 0
 
 def controlRobot(timer2):
   global command_distance, command_orientation, stepDistance, controleEnable, wheelRightCommand, wheelLeftCommand
   global stepOrientation, error_distance, b_endControle, error_orientation
-  global error_asv,TypeControleAsv 
+  global error_asv,TypeControleAsv, counter_controlRobot
   
-  #print("controlRobot")
+  counter_controlRobot = counter_controlRobot + 1
+  #print("controlRobot", counter_controlRobot, controleEnable)
   #print("error_distance", error_distance)
-  print("error_orientation", error_orientation)
-  #print("stepDistance", stepDistance)
+  #print("error_orientation", error_orientation)
+  #print("error_asv", error_asv)
   
   
   
@@ -386,10 +424,11 @@ def controlRobot(timer2):
               
               
           
-    else:
-      #print("Fin CONTROLE2")
+  else:
+    #print("Fin CONTROLE2")
+    if controleEnable == True:
       stop()
-      b_endControle = True
+    b_endControle = True
 
 
 
